@@ -1,6 +1,6 @@
 // Main.java
-// Build: javac Main.java
-// Run:   java Main input.json
+// Build: javac -cp json-20240303.jar Main.java
+// Run:   java -cp .;json-20240303.jar Main input.json
 // where input.json is one of the provided testcases.
 
 import java.io.*;
@@ -56,7 +56,6 @@ public class Main {
     }
 
     // -------- Expression evaluator for "value" strings (ADD,SUB,MUL,DIV) ----------
-    // The whole expression is in a given base. Numbers inside are parsed in that base.
     static final class ExprParser {
         private final String s;
         private int pos;
@@ -86,7 +85,6 @@ public class Main {
                 expect(')');
                 return apply(name, args);
             } else {
-                // number in given base
                 String lit = parseNumberToken();
                 try {
                     return new BigInteger(lit, base);
@@ -104,7 +102,6 @@ public class Main {
                 case "DIV":
                     ensureArgs(name, a, 2);
                     if (a.get(1).equals(BigInteger.ZERO)) throw new ArithmeticException("DIV by zero");
-                    // Expect exact division; if not exact, do integer division toward zero (define policy)
                     BigInteger[] qr = a.get(0).divideAndRemainder(a.get(1));
                     if (!qr[1].equals(BigInteger.ZERO))
                         throw new ArithmeticException("Non-exact DIV in value expression");
@@ -117,7 +114,6 @@ public class Main {
             if (a.size() != cnt) throw new RuntimeException(n + " expects " + cnt + " args");
         }
 
-        // --- helpers
         private void skip() { while (pos < s.length() && Character.isWhitespace(s.charAt(pos))) pos++; }
         private boolean accept(char c) { if (pos < s.length() && s.charAt(pos) == c) { pos++; return true; } return false; }
         private void expect(char c) { if (!accept(c)) throw new RuntimeException("Expected '" + c + "' at " + pos); }
@@ -141,7 +137,6 @@ public class Main {
     }
 
     // -------- Lagrange interpolation utilities ----------
-    // f(0) from a K-subset, exact rationals
     static BigFrac f0FromSubset(List<Point> subset) {
         BigFrac total = BigFrac.of(BigInteger.ZERO);
         for (int i = 0; i < subset.size(); i++) {
@@ -151,8 +146,8 @@ public class Main {
             BigInteger den = BigInteger.ONE;
             for (int j = 0; j < subset.size(); j++) if (j != i) {
                 BigInteger xj = subset.get(j).x;
-                num = num.multiply(xj.negate());           // -xj
-                den = den.multiply(xi.subtract(xj));       // (xi - xj)
+                num = num.multiply(xj.negate());
+                den = den.multiply(xi.subtract(xj));
             }
             BigFrac term = new BigFrac(yi.multiply(num), den);
             total = total.add(term);
@@ -160,22 +155,20 @@ public class Main {
         return total;
     }
 
-    // Build full polynomial (degree K-1) from a K-subset: p(x) = sum_i y_i * L_i(x)
     static List<BigFrac> polyFromSubset(List<Point> subset) {
         int k = subset.size();
         List<BigFrac> coeff = new ArrayList<>(Collections.nCopies(k, BigFrac.of(BigInteger.ZERO)));
         for (int i = 0; i < k; i++) {
             BigInteger xi = subset.get(i).x;
             BigInteger yi = subset.get(i).y;
-            // basis numerator: Π_{j!=i} (X - xj)
             List<BigFrac> basis = new ArrayList<>();
-            basis.add(BigFrac.of(BigInteger.ONE)); // 1
+            basis.add(BigFrac.of(BigInteger.ONE));
             BigInteger den = BigInteger.ONE;
             for (int j = 0; j < k; j++) if (j != i) {
                 BigInteger xj = subset.get(j).x;
                 basis = polyMul(basis, Arrays.asList(
-                        BigFrac.of(xj.negate()), // constant term (-xj)
-                        BigFrac.of(BigInteger.ONE) // + 1*X
+                        BigFrac.of(xj.negate()),
+                        BigFrac.of(BigInteger.ONE)
                 ));
                 den = den.multiply(xi.subtract(xj));
             }
@@ -183,7 +176,7 @@ public class Main {
             basis = polyScale(basis, scale);
             coeff = polyAdd(coeff, basis);
         }
-        return coeff; // coeff[0] is constant = secret
+        return coeff;
     }
 
     static List<BigFrac> polyMul(List<BigFrac> a, List<BigFrac> b) {
@@ -221,7 +214,7 @@ public class Main {
         return sum;
     }
 
-    // -------- Combinatorics: all K-combinations of indices 0..n-1 ----------
+    // -------- Combinatorics ----------
     static void combinations(int n, int k, IntConsumer combConsumer) {
         int[] idx = new int[k];
         for (int i = 0; i < k; i++) idx[i] = i;
@@ -236,7 +229,7 @@ public class Main {
     }
     interface IntConsumer { void accept(int[] idx); }
 
-    // -------- Parse JSON and run ----------
+    // -------- Main ----------
     public static void main(String[] args) throws Exception {
         if (args.length != 1) {
             System.err.println("Usage: java Main <input.json>");
@@ -249,19 +242,16 @@ public class Main {
         int n = keys.getInt("n");
         int k = keys.getInt("k");
 
-        // Collect all (x, y) as Points
         List<Point> all = new ArrayList<>();
         for (String key : root.keySet()) {
             if (key.equals("keys")) continue;
-            // 'key' is x-coordinate as string. The object has base and value.
-            BigInteger x = new BigInteger(key); // x are small but keep BigInteger
+            BigInteger x = new BigInteger(key);
             JSONObject obj = root.getJSONObject(key);
             int base = Integer.parseInt(obj.getString("base"));
             String valueStr = obj.getString("value").trim();
 
             BigInteger y;
             if (looksLikeFunction(valueStr)) {
-                // Evaluate functional expression in the given base
                 y = new ExprParser(valueStr, base).parse();
             } else {
                 y = new BigInteger(valueStr, base);
@@ -272,9 +262,7 @@ public class Main {
             System.err.println("Warning: provided n=" + n + " but parsed " + all.size() + " points.");
         }
 
-        // Majority vote over all K-subsets on f(0)
         Map<BigFrac, Integer> freq = new HashMap<>();
-        final List<List<Point>> goodSubsets = new ArrayList<>();
         combinations(all.size(), k, idx -> {
             List<Point> subset = new ArrayList<>(k);
             for (int id : idx) subset.add(all.get(id));
@@ -288,17 +276,19 @@ public class Main {
         }
         if (bestF0 == null) throw new RuntimeException("Could not determine secret");
 
-        // Find a concrete subset that yields bestF0 to build full polynomial
+        // ---- FIXED: replaced lambda with plain loop ----
         List<Point> winner = null;
-        combinations(all.size(), k, idx -> {
-            if (winner != null) return;
+        outer:
+        for (int[] idx : allCombinations(all.size(), k)) {
             List<Point> subset = new ArrayList<>(k);
             for (int id : idx) subset.add(all.get(id));
-            if (f0FromSubset(subset).equals(bestF0)) winner = subset;
-        });
+            if (f0FromSubset(subset).equals(bestF0)) {
+                winner = subset;
+                break outer;
+            }
+        }
         if (winner == null) throw new RuntimeException("No subset matched the winning secret");
 
-        // Build polynomial and check all points
         List<BigFrac> coeff = polyFromSubset(winner);
         BigInteger secret = coeff.get(0).toBigIntegerExact();
 
@@ -310,13 +300,18 @@ public class Main {
             }
         }
 
-        // Output
         System.out.println("Secret: " + secret);
         System.out.println("Wrong shares: " + (wrong.isEmpty() ? "[]" : wrong));
     }
 
+    // helper for loop-based combinations
+    static List<int[]> allCombinations(int n, int k) {
+        List<int[]> res = new ArrayList<>();
+        combinations(n, k, res::add);
+        return res;
+    }
+
     static boolean looksLikeFunction(String v) {
-        // crude but effective: NAME( ... )
         int p = v.indexOf('(');
         return p > 0 && Character.isLetter(v.charAt(0)) && v.endsWith(")");
     }
